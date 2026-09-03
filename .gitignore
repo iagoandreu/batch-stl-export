@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+
+# runtime state, written next to the installed add-in
+devjobs/
+reports/
+BatchSTLExport.log
+last_export.json
+
+# local machine configuration
+devbridge.on

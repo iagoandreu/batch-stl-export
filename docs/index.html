@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Batch STL Export — Fusion 360 add-in</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --panel: #f6f7f9;
+    --ink: #16191d;
+    --muted: #5c6570;
+    --line: #dfe3e8;
+    --accent: #2c7aa8;
+    --ok: #1f7a4d;
+    --warn: #a8562c;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  :root:not([data-theme="light"]) { color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171a; --panel: #1c2024; --ink: #e7eaee; --muted: #9aa4ae;
+      --line: #2c3238; --accent: #63b3dd; --ok: #5cc08c; --warn: #d99b6c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171a; --panel: #1c2024; --ink: #e7eaee; --muted: #9aa4ae;
+    --line: #2c3238; --accent: #63b3dd; --ok: #5cc08c; --warn: #d99b6c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 48px 24px 80px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 36px; }
+  h1 { font-size: 34px; line-height: 1.2; margin: 0 0 10px; letter-spacing: -0.02em; }
+  h2 { font-size: 21px; margin: 44px 0 14px; letter-spacing: -0.01em; }
+  p { margin: 0 0 14px; }
+  .lede { font-size: 18px; color: var(--muted); margin-bottom: 18px; }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size: 0.9em; background: var(--panel);
+         padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+        padding: 14px 16px; overflow-x: auto; font-family: var(--mono);
+        font-size: 13px; line-height: 1.5; }
+  .tablewrap { overflow-x: auto; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--line); }
+  th { font-weight: 600; color: var(--muted); font-size: 12px;
+       text-transform: uppercase; letter-spacing: 0.05em; }
+  td.num { font-family: var(--mono); white-space: nowrap; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .good { color: var(--ok); font-weight: 600; }
+  ul { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  .note { border-left: 3px solid var(--accent); padding: 2px 0 2px 16px;
+          color: var(--muted); margin: 18px 0; }
+  footer { margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--line);
+           color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Batch STL Export</h1>
+  <p class="lede">A Fusion 360 add-in that exports many bodies or components to STL
+  in one pass, with refinement settings that are remembered between runs.</p>
+  <p>Fusion's own <em>3D Print</em> dialog does neither: one object per invocation,
+  and every setting forgotten the moment it closes.</p>
+</header>
+
+<h2>What it does</h2>
+<ul>
+  <li>Export the <strong>selection</strong>, <strong>all visible bodies</strong>,
+  <strong>all bodies</strong>, or <strong>one file per top-level component</strong>.
+  Bodies inside components go out as proxies, so the files keep assembly
+  coordinates and the parts still fit together.</li>
+  <li>A <strong>filename template</strong>: <code>{body}</code>,
+  <code>{comp}</code>, <code>{occ}</code>, <code>{doc}</code>, <code>{nnn}</code>,
+  <code>{date}</code>, <code>{kind}</code>. Two objects that resolve to the same
+  name are always numbered apart, whatever the overwrite policy — collapsing them
+  into one file would lose a part silently.</li>
+  <li>The <strong>four refinement numbers are always in view</strong>. Picking a
+  preset fills them in so you can see what it resolves to; typing over one flips it
+  to <code>Custom</code>. A preset lets Fusion scale the deviation to each body's
+  size, <code>Custom</code> applies one absolute tolerance to every file.</li>
+  <li>The report and the optional manifest carry the triangle count and size
+  <strong>read back out of each written file</strong>, not predicted — so the
+  manifest records what happened, which matters when the export is a record.</li>
+</ul>
+
+<h2>The API reference is wrong about the units</h2>
+<p>Measured in Fusion 2704.1.23 by exporting known geometry and reading the files
+back. The four <code>STLExportOptions</code> refinement properties carry the same
+numbers the 3D Print dialog shows, <em>not</em> Fusion's internal centimetres.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>property</th><th>documented</th><th>actually</th></tr></thead>
+  <tbody>
+    <tr><td><code>surfaceDeviation</code></td><td>centimetres</td>
+        <td class="bad">millimetres</td></tr>
+    <tr><td><code>normalDeviation</code></td><td>radians</td>
+        <td class="bad">degrees</td></tr>
+    <tr><td><code>maximumEdgeLength</code></td><td>centimetres</td>
+        <td class="bad">millimetres</td></tr>
+    <tr><td><code>aspectRatio</code></td><td>&mdash;</td>
+        <td class="good">unitless</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><code>maximumEdgeLength = 1.0</code> on a 30 mm ball produced a mesh whose
+median edge is 0.98 mm; centimetres would have given ten times that.
+<code>normalDeviation = 5</code> held facet normals inside 1.19 deg, whereas five
+radians is 286 deg and would constrain nothing. <code>TriangleMeshCalculator</code>,
+by contrast, really does use the documented internal units — the two are not
+interchangeable.</p>
+
+<h2>What the presets are</h2>
+<p>Pure functions of the bounding-box diagonal, measured across four bodies:</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>preset</th><th>surface deviation</th><th>normal</th>
+             <th>maximum edge</th><th>aspect</th></tr></thead>
+  <tbody>
+    <tr><td>High</td><td class="num">diagonal / 19954</td><td class="num">10 deg</td>
+        <td class="num">diagonal</td><td class="num">21.5</td></tr>
+    <tr><td>Medium</td><td class="num">diagonal / 6310</td><td class="num">15 deg</td>
+        <td class="num">diagonal</td><td class="num">21.5</td></tr>
+    <tr><td>Low</td><td class="num">diagonal / 2512</td><td class="num">30 deg</td>
+        <td class="num">diagonal</td><td class="num">21.5</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Maximum edge length is always the diagonal itself, which no triangle can
+exceed — so no preset limits edge length at all, and <code>0</code> is the faithful
+default rather than pinning one body's diagonal onto a whole batch.</p>
+
+<h2>What the deviation setting delivers</h2>
+<p>It tracks the number you set, linearly, across three decades. On a 40 mm-radius
+cylinder the chord deviation came out at the value asked for almost exactly. On a
+30 mm ball the worst facet-plane deviation came out at twice it, consistently:</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>set</th><th>worst facet deviation</th><th>ratio</th></tr></thead>
+  <tbody>
+    <tr><td class="num">0.001 mm</td><td class="num">0.002001 mm</td><td class="num">2.00</td></tr>
+    <tr><td class="num">0.003 mm</td><td class="num">0.005968 mm</td><td class="num">2.00</td></tr>
+    <tr><td class="num">0.010 mm</td><td class="num">0.020008 mm</td><td class="num">2.00</td></tr>
+    <tr><td class="num">0.050 mm</td><td class="num">0.094434 mm</td><td class="num">1.89</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="note">Measured against a least-squares sphere fitted to the exported
+vertices. Using the vertex mean as the centre instead gives numbers up to 7&times;
+wrong, because a lat-lon tessellation crowds the poles.</p>
+
+<h2>Two things Fusion does quietly</h2>
+<p><strong>A hidden body exports nothing.</strong>
+<code>exportManager.execute()</code> returns <code>true</code> and no file appears.
+The add-in switches the light bulb on for the duration and puts it back, and marks
+those rows <code>was hidden</code>.</p>
+
+<p><strong>There is no triangle-count preview, deliberately.</strong>
+<code>TriangleMeshCalculator</code> returned 128 880 triangles where the export
+produced 7 224 at the same tolerance, and with no aspect or edge limit set it took
+Fusion down entirely. Counts are read out of the written files instead.</p>
+
+<h2>Install</h2>
+<pre>git clone &lt;this repo&gt;
+powershell -File install.ps1</pre>
+<p>Then in Fusion: <strong>Utilities → ADD-INS → Scripts and Add-Ins → Add-Ins →
+Batch STL Export → Run</strong>. The button appears in <strong>Utilities →
+Make</strong>, next to 3D Print, and in <strong>Mesh → Export</strong>. No
+dependencies — it runs on Fusion's bundled Python, stdlib only.</p>
+
+<footer>
+  <p>Source and the full write-up:
+  <a href="../README.md">README</a> ·
+  <a href="FUSION-STL-API.md">what the Fusion STL export API actually does</a>.</p>
+  <p>MIT licensed.</p>
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+    "autodeskProduct": "Fusion360",
+    "type": "addin",
+    "id": "fbe84f00-a5fe-4dcd-84be-5a586d7b101f",
+    "author": "Iago Andreu",
+    "description": {
+        "": "Export many bodies or components to STL in one pass, with refinement settings that are remembered between runs."
+    },
+    "version": "1.0.0",
+    "runOnStartup": true,
+    "supportedOS": "windows|mac",
+    "editEnabled": true
+}
