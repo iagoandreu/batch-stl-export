@@ -388,7 +388,75 @@ def _restore(switched):
             pass
 
 
+# cm (Fusion's database unit) -> the chosen STL unit
+UNIT_SCALE = {'Millimeter': 10.0, 'Centimeter': 1.0, 'Meter': 0.01,
+              'Inch': 1.0 / 2.54, 'Foot': 1.0 / 30.48}
+
+
+def mesh_triangles(mb):
+    """World triangles of a mesh body (cm): its own polygon mesh when it is all
+    triangles, else the display mesh; a proxy is carried into assembly space."""
+    pm = mb.mesh
+    if pm and pm.triangleCount and not pm.quadCount and not pm.polygonCount:
+        c, idx = list(pm.nodeCoordinatesAsDouble), list(pm.triangleNodeIndices)
+    else:
+        dm = mb.displayMesh
+        c, idx = list(dm.nodeCoordinatesAsDouble), list(dm.nodeIndices)
+    occ = mb.assemblyContext
+    if occ is not None:
+        m = occ.transform2
+        out = []
+        for i in range(0, len(c), 3):
+            p = adsk.core.Point3D.create(c[i], c[i + 1], c[i + 2])
+            p.transformBy(m)
+            out.extend((p.x, p.y, p.z))
+        c = out
+    return c, idx
+
+
+def write_stl(path, coords, idx, scale, binary, name='mesh'):
+    """An STL written directly: Fusion's exporter only takes solids and components,
+    and given a mesh body it writes nothing."""
+    n = len(idx) // 3
+
+    def tri(t):
+        a, b, cc = idx[3 * t], idx[3 * t + 1], idx[3 * t + 2]
+        A = (coords[3 * a] * scale, coords[3 * a + 1] * scale, coords[3 * a + 2] * scale)
+        B = (coords[3 * b] * scale, coords[3 * b + 1] * scale, coords[3 * b + 2] * scale)
+        C = (coords[3 * cc] * scale, coords[3 * cc + 1] * scale, coords[3 * cc + 2] * scale)
+        u = (B[0] - A[0], B[1] - A[1], B[2] - A[2])
+        v = (C[0] - A[0], C[1] - A[1], C[2] - A[2])
+        nx, ny, nz = u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]
+        ln = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
+        return (nx / ln, ny / ln, nz / ln), A, B, C
+
+    if binary:
+        with open(path, 'wb') as fh:
+            fh.write(('Batch STL Export: %s' % name).encode('ascii', 'replace')[:80].ljust(80, b' '))
+            fh.write(struct.pack('<I', n))
+            for t in range(n):
+                nn, A, B, C = tri(t)
+                fh.write(struct.pack('<12fH', *(nn + A + B + C), 0))
+    else:
+        with open(path, 'w', encoding='ascii', errors='replace') as fh:
+            fh.write('solid %s\n' % name)
+            for t in range(n):
+                nn, A, B, C = tri(t)
+                fh.write('facet normal %e %e %e\n outer loop\n' % nn)
+                for P in (A, B, C):
+                    fh.write('  vertex %e %e %e\n' % P)
+                fh.write(' endloop\nendfacet\n')
+            fh.write('endsolid %s\n' % name)
+    return n
+
+
 def export_one(exp_mgr, t, path, o):
+    mb = adsk.fusion.MeshBody.cast(t['geom'])
+    if mb:
+        c, idx = mesh_triangles(mb)
+        n = write_stl(path, c, idx, UNIT_SCALE.get(o['units'], 10.0),
+                      o['format'] == 'Binary', safe_name(t['body']))
+        return {'triangles': n, 'bytes': os.path.getsize(path), 'unhidden': False}
     switched = _force_visible(t['geom'])
     try:
         opts = make_options(exp_mgr, t['geom'], path, o)
@@ -1363,7 +1431,26 @@ def dev_export_press_ok(app, job):
     return {'executed': True}
 
 
+def dev_export_mesh_one(app, job):
+    """Export one named mesh body through export_one, for testing the mesh path."""
+    des = adsk.fusion.Design.cast(app.activeProduct)
+    meshes = list(des.rootComponent.meshBodies)
+    if not meshes:
+        return {'doc': app.activeDocument.name, 'error': 'no mesh bodies'}
+    mb = next((m for m in meshes if m.name == job.get('body')), meshes[0])
+    o = {'units': job.get('units', 'Millimeter'), 'format': job.get('format', 'Binary')}
+    t = _target(mb, mb.name, des.rootComponent.name, des.rootComponent.name, 'mesh')
+    res = export_one(des.exportManager, t, job['path'], o)
+    c, idx = mesh_triangles(mb)
+    xs = [c[i] * 10 for i in range(0, len(c), 3)]
+    res['mesh_tris'] = len(idx) // 3
+    res['doc'], res['body'] = app.activeDocument.name, mb.name
+    res['mesh_x_mm'] = [min(xs), max(xs)]
+    return res
+
+
 DEV_COMMANDS = {
+    'export_mesh_one': dev_export_mesh_one,
     'all_panels': dev_all_panels,
     'export_install': dev_export_install,
     'export_make_test': dev_export_make_test,
