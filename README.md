@@ -12,6 +12,131 @@ This reports the triangle count and file size **read back out of the files it
 wrote**, not predicted — and writes an optional manifest next to them recording
 exactly what was used.
 
+## How to use
+
+### Where the button is
+
+**Design** workspace: **Utilities** tab, **Make** panel (next to 3D Print), and
+**Mesh** tab, **Export** panel. The button is **Batch STL Export**. It is promoted,
+so it shows on the toolbar. If one of these panels does not exist in your Fusion
+build, the add-in uses the next panel on its short list.
+
+### Before you start
+
+- **Bodies or components to export** in the open design: solid bodies, mesh
+  bodies, or components.
+- **An output folder.** The dialog will not run without one. It is created if it
+  does not exist.
+- **No external Python.** Everything runs inside Fusion's own Python.
+
+### Step by step
+
+1. Click **Batch STL Export**. The OK button is labelled **Export**.
+2. Choose what to export in **Export**.
+3. If you chose *Selected bodies and components*, select them in **Objects**.
+4. Read the **Plan** box: number of files, the first three file names, the folder
+   state, and the refinement that will be used.
+5. Set the output, refinement and after-export options below.
+6. Click **Export**. A progress bar runs; **Cancel** stops after the current file.
+
+The settings, the folder included, are saved (`last_export.json` beside the
+installed add-in) and come back next time. The defaults below are the first-run
+values.
+
+| Input | Default | What it does |
+|---|---|---|
+| Export | Selected bodies and components | *Selected bodies and components*, *All visible bodies*, *All bodies* (hidden ones too), or *Top-level components* (one file per component under the root, plus one per body loose in the root). |
+| Objects | (empty) | Shown for *Selected bodies and components*. Solid bodies, mesh bodies and components; any number. One file each. |
+
+**Output**
+
+| Input | Default | What it does |
+|---|---|---|
+| Folder | (empty) | Where the files go. Required. |
+| Choose folder | | Opens a folder picker and writes the result into **Folder**. |
+| File name | `{body}` | Name template. Tokens: `{body}` `{comp}` `{occ}` `{doc}` `{n}` `{nn}` `{nnn}` `{date}` `{time}` `{kind}` (see *File names* below). `.stl` is added. |
+| If a file exists | Number the new one | *Number the new one* (adds `_2`, `_3`...), *Overwrite*, or *Skip*. |
+| Format | Binary | *Binary* or *ASCII*. |
+| Units | Millimeter | Unit written into the file: *Millimeter*, *Centimeter*, *Meter*, *Inch*, *Foot*. |
+
+**Refinement settings** (how finely solids are triangulated)
+
+| Input | Default | What it does |
+|---|---|---|
+| Refinement | Custom | *High*, *Medium*, *Low* or *Custom*. |
+| Surface deviation | 0.01 mm | Maximum distance between the triangles and the true surface. |
+| Normal deviation | 15 deg | Maximum angle between neighbouring triangle normals. |
+| Maximum edge length | 0 mm | Longest triangle edge allowed. 0 leaves it to Fusion (no limit in practice). |
+| Aspect ratio | 21.5 (0 to 100) | Maximum triangle aspect ratio. 0 leaves it to Fusion. The presets all use 21.5. |
+| Reset all settings | | Puts every setting back to its default, except the folder. |
+
+How the dropdown and the four numbers interact:
+
+- Picking **High**, **Medium** or **Low** fills the four numbers with what that
+  preset gives for the **first** object in the list. On export the preset is
+  applied as a preset, so Fusion scales the deviation to each body's size and every
+  file gets a different absolute tolerance.
+- Typing any of the four numbers switches the dropdown to **Custom**. Custom
+  applies the four numbers as typed, so every file gets the **same** absolute
+  tolerance.
+- Picking **Custom** from the dropdown overwrites the four numbers with the
+  *Medium* values for the first object, as a starting point. Type your own values
+  after picking it.
+
+**After export**
+
+| Input | Default | What it does |
+|---|---|---|
+| Write a manifest next to the files | on | Writes `stl_export_YYYYMMDD_HHMMSS.txt` into the output folder with the full report. |
+| Open the folder when finished | on | Opens the output folder in Explorer. |
+| Show the report when finished | on | Shows the report in a message box. |
+
+### What you get
+
+- One STL file per object in the output folder, named from the template.
+- Solids and components are written by Fusion's STL exporter with your refinement
+  settings, in assembly coordinates, so parts still fit together when reopened.
+- Mesh bodies are written directly from their own triangles. The refinement
+  settings do not apply to them.
+- A hidden solid or component is made visible for the export and hidden again.
+  The report marks it `was hidden`.
+- The manifest (if ticked) and a copy of the report in `reports\export_YYYYMMDD_HHMMSS.txt`
+  beside the installed add-in. Errors go to `BatchSTLExport.log` in the same folder.
+- Nothing is added to the design or its timeline.
+
+### Checking the result
+
+The report starts with *Batch STL export - N of M written*, then lists every
+setting used, then one line per file: file name, triangle count, size, source
+object, and a status note when it is not a plain write (`overwritten`,
+`renamed to avoid a clash`, `skipped, already there`, `was hidden`, `cancelled`,
+`FAILED: ...`).
+
+1. Check that **N of M written** matches the number of objects you expected.
+2. Look for `FAILED` and `Not written` lines. Details of a failure are in
+   `BatchSTLExport.log`.
+3. Check the triangle counts. They are read back from the written files, not
+   predicted. A very low count on a curved part means the refinement was too
+   coarse; a very high one means a large file for the printer.
+4. Open one or two files in your slicer or a mesh viewer and check the scale
+   (**Units**) and the surface quality before printing.
+
+### Where it fits in a patient-specific workflow
+
+It is the last step: once the guide, plate or model is designed, export every
+part at one known tolerance in one pass. Keep the manifest with the case files; it
+records the settings and the triangle count of every file as written.
+
+### Known limits
+
+- There is no triangle-count preview before export; the counts come from the
+  written files.
+- With a preset, the absolute deviation differs per body. Use **Custom** when
+  every part must have the same tolerance.
+- Two objects that resolve to the same file name in one run are always numbered
+  apart, whatever **If a file exists** says.
+- Characters `<>:"/\|?*` become `_`, and names are cut to 120 characters.
+
 ## Install
 
 1. Clone or copy this folder anywhere.
@@ -80,10 +205,11 @@ Measured: `Custom 0.003 mm` gave a 30 mm ball 24 648 triangles and an 80 mm
 cylinder 2 566; `High` gave the same ball 28 560 and the same cylinder 1 348 —
 finer on the small part, coarser on the large one.
 
-`Maximum edge length` and `Aspect ratio` take **0 for no limit**, which is the
-default. That loses nothing: the presets set maximum edge length to the body's own
-bounding-box diagonal, and no triangle can be longer than that, so a preset does
-not limit it either.
+`Maximum edge length` and `Aspect ratio` take **0 for no limit**. Maximum edge
+length defaults to 0; aspect ratio defaults to 21.5, the value all three presets
+use. A 0 edge length loses nothing: the presets set maximum edge length to the
+body's own bounding-box diagonal, and no triangle can be longer than that, so a
+preset does not limit it either.
 
 **Reset all settings** puts the panel back to its defaults. The output folder is
 kept, because re-picking that is the one thing a reset should not cost you.
